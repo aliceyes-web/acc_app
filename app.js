@@ -71,6 +71,12 @@ async function load() {
     await DB.putMany('accounts', S.accounts);
     await setMeta('seeded', true);
   }
+  // 舊版匯入的發票紀錄沒有備註：補上品項
+  for (const t of S.txs.filter((x) => x.source === 'invoice' && !x.note)) {
+    const inv = S.invoices.find((i) => i.invNum === t.invoiceId);
+    const note = inv ? itemsNote(inv) : '';
+    if (note) { t.note = note; await DB.put('txs', t); }
+  }
   // 舊版匯入、仍是「其他」且沒手動改過的待確認發票，補做自動分類
   const otherCat = catsOf('expense').find((c) => c.name === '其他');
   for (const t of S.txs.filter((x) => x.status === 'pending' && !x.touched && (!x.categoryId || x.categoryId === otherCat?.id))) {
@@ -236,7 +242,7 @@ function viewAdd() {
     <div class="card fields">
       ${acctFields}
       <label class="field"><span>日期</span><input type="date" data-bind="date" value="${esc(d.date)}"></label>
-      <label class="field"><span>備註</span><input type="text" data-bind="note" value="${esc(d.note)}" placeholder="例如：早餐" maxlength="60"></label>
+      <label class="field"><span>備註</span><input type="text" data-bind="note" value="${esc(d.note)}" placeholder="例如：早餐" maxlength="200"></label>
     </div>
     <div class="keypad">${keypad}</div>
   </div>`;
@@ -375,9 +381,9 @@ const GUESS = [
   ['飲食', ['統一超商', '7-ELEVEN', '全家便利', '萊爾富', '來來超商', 'OK超商', '餐', '食品', '飲料', '咖啡', '星巴克', '路易莎', '麥當勞', '肯德基', '摩斯', '漢堡', '便當', '早午餐', '早餐', '麵店', '麵館', '飯糰', '茶飲', '手搖', '烘焙', '麵包', '85度C', '吉野家', '壽司', '火鍋', '小吃', '果汁', 'foodpanda', 'Uber Eats', '富胖達']],
   ['醫療', ['藥局', '藥妝', '診所', '醫院', '醫療', '牙醫', '眼科', '大樹', '杏一', '丁丁', '健保', '藥品']],
   ['居家', ['中華電信', '台灣大哥大', '遠傳', '亞太電信', '台灣之星', '電信', '電力', '自來水', '瓦斯', '天然氣', '管理費', 'IKEA', '宜家', '特力', 'HOLA', '寶家', '振宇', '全聯', '家樂福', '大潤發', '好市多', 'Costco', '美廉社', '家居', '五金', '清潔', '衛生紙', '洗衣']],
-  ['娛樂', ['影城', '威秀', '秀泰', '國賓', '電影', 'Netflix', 'Spotify', 'KTV', '錢櫃', '好樂迪', '遊戲', 'Steam', '樂園', '門票', '展覽']],
+  ['娛樂', ['Valve', 'Google Play', 'App Store', 'Apple', 'Nintendo', '任天堂', 'PlayStation', '索尼互動', '影城', '威秀', '秀泰', '國賓', '電影', 'Netflix', 'Spotify', 'KTV', '錢櫃', '好樂迪', '遊戲', 'Steam', '樂園', '門票', '展覽']],
   ['學習', ['書店', '誠品', '金石堂', '博客來', '補習', '課程', '文具', '學費']],
-  ['購物', ['蝦皮', '富邦媒體', 'momo', '網路家庭', 'PChome', '酷澎', 'Coupang', '雅虎', 'Yahoo', '屈臣氏', '康是美', '寶雅', '服飾', '百貨', '新光三越', '遠東', 'SOGO', '優衣庫', 'UNIQLO', '91APP', '內衣', '服裝', '鞋', '迪卡儂', '電商', '購物']],
+  ['購物', ['蝦皮', '富邦媒體', 'momo', '網路家庭', 'PChome', '酷澎', 'Coupang', '雅虎', 'Yahoo', '屈臣氏', '康是美', '寶雅', '服飾', '百貨', '新光三越', '遠東', 'SOGO', '優衣庫', 'UNIQLO', '91APP', '運動世界', '運動用品', '內衣', '服裝', '鞋', '迪卡儂', '電商', '購物']],
 ];
 function guessCategory(inv) {
   // 先看店家名稱，再看品項（排除運費、折扣這類非商品列）
@@ -391,6 +397,18 @@ function guessCategory(inv) {
     }
   }
   return null;
+}
+// 把發票品項整理成備註：品名（數量>1 時加 ×數量），排除折扣列，最長 200 字
+function itemsNote(inv) {
+  // 排除折扣與 0 元贈品／印花，同名品項合併數量
+  const merged = new Map();
+  for (const it of inv.items || []) {
+    if (it.subtotal <= 0 || /折扣|折價|優惠|折抵/.test(it.name)) continue;
+    merged.set(it.name, (merged.get(it.name) || 0) + (it.qty || 1));
+  }
+  const parts = [...merged].map(([name, qty]) => (qty > 1 ? `${name}×${qty}` : name));
+  const text = parts.join('、');
+  return text.length > 200 ? text.slice(0, 199) + '…' : text;
 }
 function findRule(inv) {
   return S.rules.find((r) => r.ban && inv.ban && r.ban === inv.ban) || S.rules.find((r) => r.keyword && inv.seller.includes(r.keyword));
@@ -409,7 +427,7 @@ async function importInvoices(file) {
     const tx = {
       id: uid(), type: 'expense', amount: inv.amount, accountId: rule?.accountId && acct(rule.accountId) ? rule.accountId : fallbackAcct,
       toAccountId: null, categoryId: rule?.categoryId && cat(rule.categoryId) ? rule.categoryId : (guessCategory(inv) || otherCat?.id),
-      date: inv.date, note: '', source: 'invoice', invoiceId: inv.invNum, status: 'pending', createdAt: now, updatedAt: now,
+      date: inv.date, note: itemsNote(inv), source: 'invoice', invoiceId: inv.invNum, status: 'pending', createdAt: now, updatedAt: now,
     };
     await save('invoices', { ...inv, importedAt: now, txId: tx.id });
     if (inv.amount > 0) { await save('txs', tx); added++; }
@@ -487,7 +505,7 @@ function viewSettings() {
       <button class="srow" data-act="restore"><span class="main"><span>從備份還原</span><span class="s">換手機時使用，會覆蓋目前資料</span></span>${I.chev}</button>
     </div></div>
     <div class="note">資料只存在這台手機的瀏覽器裡。建議每月備份一次，把備份檔存到雲端硬碟或電腦。清除瀏覽器資料會刪掉所有紀錄。</div>
-    <div class="small muted" style="text-align:center">記帳 PWA · 版本 1.2</div>
+    <div class="small muted" style="text-align:center">記帳 PWA · 版本 1.3</div>
   </div>`;
 }
 
