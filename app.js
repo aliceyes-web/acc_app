@@ -443,7 +443,7 @@ function viewInvoices() {
   }).join('');
   return `<div class="stack">
     <div class="topbar"><h1>發票</h1><button class="btn" data-act="import" style="height:40px;display:flex;align-items:center;gap:6px">${I.upload}匯入發票檔</button></div>
-    <div class="card pad" style="padding:12px 14px">${li ? `<div class="small muted">上次匯入 · ${esc(li.at)}</div><div style="font-size:14px;overflow-wrap:anywhere">${esc(li.file)} · 新增 ${li.added} 張，略過 ${li.skipped} 張</div>` : `<div style="font-size:14px">到財政部電子發票整合服務平台下載載具消費明細 CSV，再按「匯入發票檔」。重複的發票會自動略過。</div>`}</div>
+    <div class="card pad" style="padding:12px 14px">${li ? `<div class="small muted">上次匯入 · ${esc(li.at)}</div><div style="font-size:14px;overflow-wrap:anywhere">${esc(li.file)} · 新增 ${li.added} 張，略過 ${li.skipped} 張</div>` : `<div style="font-size:14px">到財政部電子發票整合服務平台下載載具消費明細 CSV，再按「匯入發票檔」。也可以在手機的「檔案」APP 對發票檔按「分享」→ 選「記帳」。重複的發票會自動略過。</div>`}</div>
     <label class="card fields"><span class="field" style="border:0"><span style="width:auto">新發票預設付款帳戶</span><select data-act="inv-default-acct" style="text-align:right">${accountOptions(S.meta.invoiceAccountId && acct(S.meta.invoiceAccountId) ? S.meta.invoiceAccountId : defaultAccount()?.id)}</select></span></label>
     <div class="row-between"><h2>待確認 ${pending.length} 張</h2><span class="small muted">確認後才計入支出</span></div>
     ${cards || '<div class="card empty">沒有待確認的發票</div>'}
@@ -487,7 +487,7 @@ function viewSettings() {
       <button class="srow" data-act="restore"><span class="main"><span>從備份還原</span><span class="s">換手機時使用，會覆蓋目前資料</span></span>${I.chev}</button>
     </div></div>
     <div class="note">資料只存在這台手機的瀏覽器裡。建議每月備份一次，把備份檔存到雲端硬碟或電腦。清除瀏覽器資料會刪掉所有紀錄。</div>
-    <div class="small muted" style="text-align:center">記帳 PWA · 版本 1.0</div>
+    <div class="small muted" style="text-align:center">記帳 PWA · 版本 1.2</div>
   </div>`;
 }
 
@@ -785,4 +785,19 @@ window.addEventListener('hashchange', () => {
   }
   render();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+  // 從檔案 APP「分享」到記帳的發票檔
+  if (location.hash.includes('shared=1') && 'caches' in window) {
+    try {
+      const c = await caches.open('jizhang-share');
+      const res = await c.match('shared-file');
+      if (res) {
+        const name = decodeURIComponent(res.headers.get('X-File-Name') || 'shared.csv');
+        const file = new File([await res.blob()], name);
+        await c.delete('shared-file');
+        history.replaceState(null, '', '#invoices');
+        await importInvoices(file);
+      } else history.replaceState(null, '', '#invoices');
+    } catch (e) { toast('讀取分享的檔案失敗'); }
+    render();
+  }
 })();
