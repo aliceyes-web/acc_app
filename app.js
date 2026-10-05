@@ -71,11 +71,13 @@ async function load() {
     await DB.putMany('accounts', S.accounts);
     await setMeta('seeded', true);
   }
-  // 舊版匯入的發票紀錄沒有備註：補上品項
-  for (const t of S.txs.filter((x) => x.source === 'invoice' && !x.note)) {
+  // 舊版匯入的發票紀錄：補上品項備註與店家
+  for (const t of S.txs.filter((x) => x.source === 'invoice' && (!x.note || x.store === undefined))) {
     const inv = S.invoices.find((i) => i.invNum === t.invoiceId);
-    const note = inv ? itemsNote(inv) : '';
-    if (note) { t.note = note; await DB.put('txs', t); }
+    if (!inv) continue;
+    if (!t.note) t.note = itemsNote(inv);
+    if (t.store === undefined) t.store = inv.seller;
+    await DB.put('txs', t);
   }
   // 舊版匯入、仍是「其他」且沒手動改過的待確認發票，補做自動分類
   const otherCat = catsOf('expense').find((c) => c.name === '其他');
@@ -136,14 +138,22 @@ function badgeFor(t) {
   const col = COLORS[(c?.color ?? 7) % COLORS.length];
   return `<div class="badge" style="background:${col.bg};color:${col.fg}">${esc((c?.name || '？').slice(0, 1))}</div>`;
 }
-function txTitle(t) { return t.type === 'transfer' ? '轉帳' : (cat(t.categoryId)?.name || '未分類'); }
+// 店家名稱縮短顯示：去掉「股份有限公司」「有限公司」等字樣
+function shortStore(name) {
+  return String(name || '').replace(/股份有限公司|有限公司|股份公司/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const catName = (t) => cat(t.categoryId)?.name || '未分類';
+function txTitle(t) {
+  if (t.type === 'transfer') return '轉帳';
+  return t.store ? shortStore(t.store) : catName(t);
+}
 function txSub(t, withDate) {
   const parts = [];
   if (withDate) parts.push(shortDate(t.date));
+  if (t.type !== 'transfer' && t.store) parts.push(catName(t));
   if (t.type === 'transfer') parts.push(`${acct(t.accountId)?.name || '？'} → ${acct(t.toAccountId)?.name || '？'}`);
   else parts.push(acct(t.accountId)?.name || '？');
   if (t.note) parts.push(t.note);
-  if (t.source === 'invoice') { const inv = S.invoices.find((i) => i.invNum === t.invoiceId); parts.push(inv?.seller ? `發票 · ${inv.seller}` : '發票'); }
   return parts.map(esc).join(' · ');
 }
 function txAmount(t) {
@@ -198,10 +208,10 @@ function viewHome() {
 function newDraft(type = 'expense') {
   const last = S.meta.lastAccountId && acct(S.meta.lastAccountId) && !acct(S.meta.lastAccountId).archived ? S.meta.lastAccountId : defaultAccount()?.id;
   const others = activeAccounts().filter((a) => a.id !== last);
-  return { id: null, type, expr: '', categoryId: catsOf(type === 'income' ? 'income' : 'expense')[0]?.id, accountId: last, toAccountId: others[0]?.id || '', date: today(), note: '' };
+  return { id: null, type, expr: '', categoryId: catsOf(type === 'income' ? 'income' : 'expense')[0]?.id, accountId: last, toAccountId: others[0]?.id || '', date: today(), note: '', store: '' };
 }
 function draftFromTx(t) {
-  return { id: t.id, type: t.type, expr: String(t.amount), categoryId: t.categoryId, accountId: t.accountId, toAccountId: t.toAccountId || '', date: t.date, note: t.note || '', source: t.source, invoiceId: t.invoiceId, createdAt: t.createdAt };
+  return { id: t.id, type: t.type, expr: String(t.amount), categoryId: t.categoryId, accountId: t.accountId, toAccountId: t.toAccountId || '', date: t.date, note: t.note || '', store: t.store || '', source: t.source, invoiceId: t.invoiceId, createdAt: t.createdAt };
 }
 function evalExpr(expr) {
   const s = expr.replace(/−/g, '-');
@@ -242,6 +252,8 @@ function viewAdd() {
     <div class="card fields">
       ${acctFields}
       <label class="field"><span>日期</span><input type="date" data-bind="date" value="${esc(d.date)}"></label>
+      <label class="field"><span>店家</span><input type="text" data-bind="store" value="${esc(d.store || '')}" placeholder="選填，例如：全家" maxlength="60" list="store-list"></label>
+      <datalist id="store-list">${[...new Set(S.txs.map((t) => t.store).filter(Boolean))].slice(0, 200).map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>
       <label class="field"><span>備註</span><input type="text" data-bind="note" value="${esc(d.note)}" placeholder="例如：早餐" maxlength="200"></label>
     </div>
     <div class="keypad">${keypad}</div>
@@ -268,7 +280,7 @@ async function saveDraft() {
     id: d.id || uid(), type: d.type, amount, accountId: d.accountId,
     toAccountId: d.type === 'transfer' ? d.toAccountId : null,
     categoryId: d.type === 'transfer' ? null : d.categoryId,
-    date: d.date || today(), note: d.note.trim(), source: d.source || 'manual', invoiceId: d.invoiceId || null,
+    date: d.date || today(), note: d.note.trim(), store: d.type === 'transfer' ? '' : (d.store || '').trim(), source: d.source || 'manual', invoiceId: d.invoiceId || null,
     status: 'confirmed', createdAt: d.createdAt || now, updatedAt: now,
   };
   await save('txs', t);
@@ -289,7 +301,7 @@ function viewLedger() {
     if (f.accountId && t.accountId !== f.accountId && t.toAccountId !== f.accountId) return false;
     if (q) {
       const inv = t.invoiceId ? S.invoices.find((i) => i.invNum === t.invoiceId) : null;
-      const hay = [t.note, txTitle(t), acct(t.accountId)?.name, inv?.seller].join(' ').toLowerCase();
+      const hay = [t.note, t.store, catName(t), acct(t.accountId)?.name, inv?.seller].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -427,7 +439,7 @@ async function importInvoices(file) {
     const tx = {
       id: uid(), type: 'expense', amount: inv.amount, accountId: rule?.accountId && acct(rule.accountId) ? rule.accountId : fallbackAcct,
       toAccountId: null, categoryId: rule?.categoryId && cat(rule.categoryId) ? rule.categoryId : (guessCategory(inv) || otherCat?.id),
-      date: inv.date, note: itemsNote(inv), source: 'invoice', invoiceId: inv.invNum, status: 'pending', createdAt: now, updatedAt: now,
+      date: inv.date, note: itemsNote(inv), store: inv.seller, source: 'invoice', invoiceId: inv.invNum, status: 'pending', createdAt: now, updatedAt: now,
     };
     await save('invoices', { ...inv, importedAt: now, txId: tx.id });
     if (inv.amount > 0) { await save('txs', tx); added++; }
@@ -505,7 +517,7 @@ function viewSettings() {
       <button class="srow" data-act="restore"><span class="main"><span>從備份還原</span><span class="s">換手機時使用，會覆蓋目前資料</span></span>${I.chev}</button>
     </div></div>
     <div class="note">資料只存在這台手機的瀏覽器裡。建議每月備份一次，把備份檔存到雲端硬碟或電腦。清除瀏覽器資料會刪掉所有紀錄。</div>
-    <div class="small muted" style="text-align:center">記帳 PWA · 版本 1.3</div>
+    <div class="small muted" style="text-align:center">記帳 PWA · 版本 1.4</div>
   </div>`;
 }
 
@@ -597,7 +609,7 @@ function doExport() {
   const lines = [head.join(',')];
   for (const t of rows) {
     const inv = t.invoiceId ? S.invoices.find((i) => i.invNum === t.invoiceId) : null;
-    lines.push([t.date, { income: '收入', expense: '支出', transfer: '轉帳' }[t.type], t.type === 'transfer' ? '' : cat(t.categoryId)?.name, t.amount, acct(t.accountId)?.name, t.type === 'transfer' ? acct(t.toAccountId)?.name : '', t.note, t.source === 'invoice' ? '發票' : '手動', t.invoiceId || '', inv?.seller || ''].map(csvCell).join(','));
+    lines.push([t.date, { income: '收入', expense: '支出', transfer: '轉帳' }[t.type], t.type === 'transfer' ? '' : cat(t.categoryId)?.name, t.amount, acct(t.accountId)?.name, t.type === 'transfer' ? acct(t.toAccountId)?.name : '', t.note, t.source === 'invoice' ? '發票' : '手動', t.invoiceId || '', t.store || inv?.seller || ''].map(csvCell).join(','));
   }
   download(`jizhang_${from.replace(/-/g, '')}_${to.replace(/-/g, '')}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
   toast(`已匯出 ${rows.length} 筆`);
