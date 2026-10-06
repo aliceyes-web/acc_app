@@ -38,12 +38,16 @@ const I = {
   back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11v12H9l-6-6z"/><path d="M12 10l4 4M16 10l-4 4"/></svg>',
   transfer: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3-3M20 16H6l3 3"/></svg>',
   upload: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
+  more: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>',
+  refresh: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+  pin: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3z"/><path d="M12 14v6"/></svg>',
+  drop: '<svg width="12" height="12" viewBox="0 0 24 24" fill="#3F7FD1" aria-hidden="true"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg>',
   up: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 15l6-6 6 6"/></svg>',
   down: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>',
 };
 
 // ---------- 狀態 ----------
-const S = { accounts: [], categories: [], txs: [], invoices: [], rules: [], meta: {} };
+const S = { accounts: [], categories: [], txs: [], invoices: [], rules: [], notes: [], meta: {} };
 const UI = {
   month: thisMonth(),
   draft: null,
@@ -52,6 +56,9 @@ const UI = {
   catType: 'expense',
   pendingRestore: null,
   exportFrom: '', exportTo: '',
+  weather: { status: 'idle', msg: '' },
+  notesQ: '',
+  note: null,
 };
 
 const DEFAULT_CATS = [
@@ -62,7 +69,7 @@ const DEFAULT_CATS = [
 
 async function load() {
   await DB.open();
-  for (const name of ['accounts', 'categories', 'txs', 'invoices', 'rules']) S[name] = await DB.all(name);
+  for (const name of ['accounts', 'categories', 'txs', 'invoices', 'rules', 'notes']) S[name] = await DB.all(name);
   S.meta = Object.fromEntries((await DB.all('meta')).map((m) => [m.key, m.value]));
   if (!S.meta.seeded) {
     S.categories = DEFAULT_CATS.map(([name, type, color], i) => ({ id: uid(), name, type, color, sort: i }));
@@ -179,6 +186,147 @@ function categoryOptions(type, selected) {
   return catsOf(type).map((c) => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
 }
 
+// ---------- 天氣（Open-Meteo，使用定位） ----------
+const WMO = {
+  0: ['晴', 'sun'], 1: ['大致晴朗', 'sun'], 2: ['局部多雲', 'partly'], 3: ['陰天', 'cloud'],
+  45: ['霧', 'fog'], 48: ['霧', 'fog'], 51: ['毛毛雨', 'rain'], 53: ['毛毛雨', 'rain'], 55: ['毛毛雨', 'rain'],
+  56: ['凍毛毛雨', 'rain'], 57: ['凍毛毛雨', 'rain'], 61: ['小雨', 'rain'], 63: ['下雨', 'rain'], 65: ['大雨', 'rain'],
+  66: ['凍雨', 'rain'], 67: ['凍雨', 'rain'], 71: ['小雪', 'snow'], 73: ['下雪', 'snow'], 75: ['大雪', 'snow'], 77: ['雪粒', 'snow'],
+  80: ['陣雨', 'rain'], 81: ['陣雨', 'rain'], 82: ['強陣雨', 'rain'], 85: ['陣雪', 'snow'], 86: ['陣雪', 'snow'],
+  95: ['雷雨', 'storm'], 96: ['雷雨冰雹', 'storm'], 99: ['雷雨冰雹', 'storm'],
+};
+const wmo = (c) => WMO[c] || ['—', 'cloud'];
+function wIcon(kind, size = 40) {
+  const sun = '<circle cx="12" cy="12" r="4.2" fill="#F2A93B"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="#F2A93B" stroke-width="1.8" stroke-linecap="round"/>';
+  const cloud = (x, y, c) => `<path transform="translate(${x} ${y})" d="M7 18h10a4 4 0 0 0 .4-8 5.5 5.5 0 0 0-10.6 1.5A3.3 3.3 0 0 0 7 18z" fill="${c}"/>`;
+  const body = {
+    sun,
+    partly: `<g transform="translate(-2 -2) scale(.8)">${sun}</g>${cloud(2, 2, '#C9C3D8')}`,
+    cloud: cloud(0, -1, '#B9B3C9'),
+    fog: `${cloud(0, -3, '#B9B3C9')}<path d="M4 20h16M6 22.5h12" stroke="#B9B3C9" stroke-width="1.6" stroke-linecap="round"/>`,
+    rain: `${cloud(0, -3, '#9FA6C2')}<path d="M8 18.5l-1 3M12 18.5l-1 3M16 18.5l-1 3" stroke="#3F7FD1" stroke-width="1.8" stroke-linecap="round"/>`,
+    snow: `${cloud(0, -3, '#B9B3C9')}<path d="M8 20h.01M12 21h.01M16 20h.01" stroke="#7FA7D9" stroke-width="2.6" stroke-linecap="round"/>`,
+    storm: `${cloud(0, -3, '#7E7896')}<path d="M12.5 15.5l-2 4h3l-2 4" stroke="#F2A93B" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`,
+  }[kind] || cloud(0, -1, '#B9B3C9');
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
+}
+function getPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('這支手機的瀏覽器不支援定位'));
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve(p.coords),
+      (err) => reject(new Error(err.code === 1 ? '沒有定位權限：請到 Chrome「設定 → 網站設定 → 位置」允許這個網址' : err.code === 3 ? '定位逾時，請稍後再試' : '無法取得位置，請確認手機定位已開啟')),
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 30 * 60 * 1000 },
+    );
+  });
+}
+async function fetchWeather({ quiet = false } = {}) {
+  UI.weather = { status: 'loading', msg: '' };
+  if (!quiet && route() === '#home') render();
+  try {
+    const c = await getPosition();
+    // 只取到小數 2 位（約 1 公里），不送出精確位置
+    const lat = Math.round(c.latitude * 100) / 100, lon = Math.round(c.longitude * 100) / 100;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
+      + '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code'
+      + '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max'
+      + '&timezone=auto&forecast_days=7';
+    let res;
+    try { res = await fetch(url); } catch { throw new Error('連不上天氣服務'); }
+    if (!res.ok) throw new Error('天氣服務暫時無法使用');
+    const j = await res.json();
+    const daily = j.daily.time.map((d, i) => ({ date: d, code: j.daily.weather_code[i], max: j.daily.temperature_2m_max[i], min: j.daily.temperature_2m_min[i], pop: j.daily.precipitation_probability_max ? j.daily.precipitation_probability_max[i] : null }));
+    const data = { at: new Date().toISOString(), lat, lon, current: { temp: j.current.temperature_2m, feel: j.current.apparent_temperature, hum: j.current.relative_humidity_2m, code: j.current.weather_code }, daily };
+    await setMeta('weather', data);
+    UI.weather = { status: 'ok', msg: '' };
+  } catch (e) {
+    UI.weather = { status: 'error', msg: navigator.onLine === false ? '目前沒有網路' : (e.message || '取得天氣失敗') };
+  }
+  if (route() === '#home') render();
+}
+const hhmm = (iso) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const deg = (v) => (v === null || v === undefined ? '—' : Math.round(v) + '°');
+function weatherCard() {
+  if (!S.meta.weatherOn) {
+    return `<button class="card weather-off" data-act="weather-enable">${wIcon('partly', 32)}<span><b>顯示目前位置的天氣</b><br><span class="small muted">會詢問定位權限，資料來自 Open-Meteo</span></span></button>`;
+  }
+  const w = S.meta.weather; const st = UI.weather;
+  if (!w) {
+    if (st.status === 'error') return `<div class="card weather-off"><span style="flex-grow:1"><b>無法取得天氣</b><br><span class="small muted">${esc(st.msg)}</span></span><button class="btn ghost" data-act="weather-refresh" style="height:40px">重試</button></div>`;
+    return `<div class="card weather-off"><span class="muted">取得天氣中…</span></div>`;
+  }
+  const [desc, kind] = wmo(w.current.code); const t0 = w.daily[0] || {};
+  const note = st.status === 'loading' ? '更新中…' : st.status === 'error' ? `${esc(st.msg)}，顯示 ${hhmm(w.at)} 的資料` : `${hhmm(w.at)} 更新`;
+  return `<div class="card weather">
+    <button class="weather-main" data-act="weather-detail" aria-label="查看一週天氣">${wIcon(kind, 44)}
+      <span class="wt">${deg(w.current.temp)}</span>
+      <span class="wd"><b>${desc}</b><span class="small muted">${deg(t0.min)} / ${deg(t0.max)} · 降雨 ${t0.pop ?? '—'}%</span><span class="small muted">${note}</span></span>
+    </button>
+    <button class="icon-btn" data-act="weather-refresh" aria-label="重新整理天氣">${I.refresh}</button>
+  </div>`;
+}
+function weatherSheet() {
+  const w = S.meta.weather; if (!w) return '';
+  const rows = w.daily.map((d, i) => { const [desc, kind] = wmo(d.code); return `<div class="wrow"><span class="wday">${i === 0 ? '今天' : dayLabel(d.date)}</span>${wIcon(kind, 28)}<span>${desc}</span><span class="wpop">${I.drop}${d.pop ?? '—'}%</span><span class="wtemp">${deg(d.min)} / <b>${deg(d.max)}</b></span></div>`; }).join('');
+  return `<div class="sheet" role="dialog" aria-modal="true" aria-label="一週天氣">
+    <div class="row-between"><h2>一週天氣</h2><button class="link-btn" data-act="close">關閉</button></div>
+    <div class="small muted">目前 ${deg(w.current.temp)}，體感 ${deg(w.current.feel)}，濕度 ${w.current.hum}% · ${hhmm(w.at)} 更新</div>
+    <div class="card list">${rows}</div>
+    <div class="small muted">天氣資料：Open-Meteo.com（CC BY 4.0）</div>
+  </div>`;
+}
+
+// ---------- 記事本 ----------
+const noteTitle = (n) => (n.title || '').trim() || (n.body || '').trim().split('\n')[0].slice(0, 40) || '（無標題）';
+function viewNotes() {
+  const q = UI.notesQ.trim().toLowerCase();
+  const list = S.notes.filter((n) => !q || `${n.title} ${n.body}`.toLowerCase().includes(q))
+    .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  const card = (n) => {
+    const body = (n.body || '').trim();
+    const snippet = (n.title || '').trim() ? body : body.split('\n').slice(1).join(' ');
+    const d = new Date(n.updatedAt);
+    return `<a class="note-card card" href="#note?id=${n.id}"><div class="row-between"><b class="nt">${n.pinned ? `<span class="pin" aria-label="置頂">${I.pin}</span>` : ''}${esc(noteTitle(n))}</b><span class="small muted">${d.getMonth() + 1}/${d.getDate()}</span></div>${snippet ? `<div class="ns">${esc(snippet.slice(0, 120))}</div>` : ''}</a>`;
+  };
+  return `<div class="stack">
+    ${topbar('記事本', { back: '#settings', backLabel: '更多', end: '<a class="link-btn" href="#note?id=new">＋ 新增</a>' })}
+    <label class="search">${I.search}<input type="search" data-act="notes-q" placeholder="搜尋筆記" value="${esc(UI.notesQ)}" aria-label="搜尋筆記"></label>
+    ${list.length ? list.map(card).join('') : `<div class="card empty">${q ? '找不到符合的筆記' : '還沒有筆記，按右上角「＋ 新增」'}</div>`}
+  </div>`;
+}
+function openNoteFromHash() {
+  const id = new URLSearchParams(location.hash.split('?')[1] || '').get('id');
+  const n = id && id !== 'new' ? S.notes.find((x) => x.id === id) : null;
+  UI.note = n ? { ...n } : { id: uid(), title: '', body: '', pinned: false, createdAt: new Date().toISOString(), isNew: true };
+}
+function viewNote() {
+  if (!UI.note) openNoteFromHash();
+  const n = UI.note;
+  const actions = `<button class="icon-btn" data-act="note-pin" aria-pressed="${!!n.pinned}" aria-label="${n.pinned ? '取消置頂' : '置頂'}" style="${n.pinned ? 'color:var(--primary)' : ''}">${I.pin}</button>${n.isNew ? '' : '<button class="link-btn" data-act="note-delete" style="color:var(--expense)">刪除</button>'}`;
+  return `<div class="stack" style="gap:10px">
+    ${topbar(n.isNew ? '新筆記' : '筆記', { back: '#notes', backLabel: '記事本', end: actions })}
+    <input class="note-title" data-act="note-title" value="${esc(n.title)}" placeholder="標題" maxlength="80" aria-label="標題">
+    <textarea class="note-body" data-act="note-body" placeholder="開始寫…" aria-label="內容">${esc(n.body)}</textarea>
+    <div class="small muted" id="note-status">${n.isNew ? '輸入後自動儲存' : '已儲存'}</div>
+  </div>`;
+}
+let noteTimer = null;
+function scheduleNoteSave() {
+  clearTimeout(noteTimer);
+  const st = $('#note-status'); if (st) st.textContent = '儲存中…';
+  noteTimer = setTimeout(saveNoteNow, 400);
+}
+async function saveNoteNow() {
+  clearTimeout(noteTimer); noteTimer = null;
+  const n = UI.note; if (!n) return;
+  if (!n.title.trim() && !n.body.trim()) { const st = $('#note-status'); if (st) st.textContent = '輸入後自動儲存'; return; }
+  const { isNew, ...rec } = n;
+  rec.updatedAt = new Date().toISOString();
+  await save('notes', rec);
+  n.isNew = false;
+  const st = $('#note-status'); if (st) st.textContent = `已儲存 ${hhmm(rec.updatedAt)}`;
+}
+
 // ---------- 畫面：首頁 ----------
 function viewHome() {
   const t = monthTotals(UI.month);
@@ -186,6 +334,7 @@ function viewHome() {
   const recent = confirmed().filter((x) => x.date.startsWith(UI.month)).sort(sortTx).slice(0, 5);
   const pending = pendingInvoiceTxs().length;
   return `<div class="stack">
+    ${weatherCard()}
     ${monthNav('')}
     <div class="card summary">
       <div><div class="muted small">本月結餘</div><div class="big">NT$ ${t.net < 0 ? '−' : ''}${fmt(t.net)}</div></div>
@@ -504,7 +653,11 @@ async function confirmInvoiceTx(id, quiet) {
 function viewSettings() {
   const lb = S.meta.lastBackup;
   return `<div class="stack">
-    <div class="topbar"><h1>設定</h1></div>
+    <div class="topbar"><h1>更多</h1></div>
+    <div><div class="section-label">工具</div><div class="card list">
+      <a class="srow" href="#notes"><span class="main">記事本</span><span class="small muted">${S.notes.length} 則</span>${I.chev}</a>
+      <button class="srow" data-act="${S.meta.weatherOn ? 'weather-off' : 'weather-enable'}"><span class="main"><span>首頁天氣</span><span class="s">${S.meta.weatherOn ? '已開啟，使用定位，資料來自 Open-Meteo' : '未開啟'}</span></span><span class="small" style="color:var(--primary)">${S.meta.weatherOn ? '關閉' : '開啟'}</span></button>
+    </div></div>
     <div><div class="section-label">記帳</div><div class="card list">
       <a class="srow" href="#accounts"><span class="main">帳戶管理</span><span class="small muted">${activeAccounts().length} 個</span>${I.chev}</a>
       <a class="srow" href="#categories" data-act="cat-manage" data-type="expense"><span class="main">支出分類</span><span class="small muted">${catsOf('expense').length} 個</span>${I.chev}</a>
@@ -517,7 +670,7 @@ function viewSettings() {
       <button class="srow" data-act="restore"><span class="main"><span>從備份還原</span><span class="s">換手機時使用，會覆蓋目前資料</span></span>${I.chev}</button>
     </div></div>
     <div class="note">資料只存在這台手機的瀏覽器裡。建議每月備份一次，把備份檔存到雲端硬碟或電腦。清除瀏覽器資料會刪掉所有紀錄。</div>
-    <div class="small muted" style="text-align:center">記帳 PWA · 版本 1.4</div>
+    <div class="small muted" style="text-align:center">記帳 PWA · 版本 1.5</div>
   </div>`;
 }
 
@@ -528,7 +681,7 @@ function viewAccounts() {
   const net = list.reduce((s, a) => s + balance(a), 0);
   const row = (a) => { const b = balance(a); const col = a.kind === 'credit_card' ? COLORS[0] : a.kind === 'bank' ? COLORS[8] : COLORS[4]; return `<button class="item" data-act="edit-acct" data-id="${a.id}"><div class="badge" style="background:${col.bg};color:${col.fg}">${esc(a.name.slice(0, 1))}</div><div class="main"><div class="t">${esc(a.name)}</div><div class="s">${KIND[a.kind]}${a.isDefault ? ' · 預設帳戶' : ''}${a.kind === 'credit_card' && b < 0 ? ' · 未繳' : ''}</div></div><div class="amt ${b < 0 ? 'neg' : ''}">${signed(b)}</div></button>`; };
   return `<div class="stack">
-    ${topbar('帳戶管理', { back: '#settings', backLabel: '設定' })}
+    ${topbar('帳戶管理', { back: '#settings', backLabel: '更多' })}
     <div style="background:var(--primary);color:#fff;border-radius:26px;padding:18px 20px"><div class="small" style="opacity:.85">淨資產（資產 − 信用卡未繳）</div><div style="font-size:32px;font-weight:700">NT$ ${signed(net)}</div></div>
     <div class="card list">${list.map(row).join('') || '<div class="empty">還沒有帳戶</div>'}</div>
     ${archived.length ? `<div><div class="section-label">已封存</div><div class="card list">${archived.map(row).join('')}</div></div>` : ''}
@@ -556,7 +709,7 @@ function viewCategories() {
   const type = UI.catType;
   const list = catsOf(type);
   return `<div class="stack">
-    ${topbar(type === 'income' ? '收入分類' : '支出分類', { back: '#settings', backLabel: '設定' })}
+    ${topbar(type === 'income' ? '收入分類' : '支出分類', { back: '#settings', backLabel: '更多' })}
     <div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))"><button data-act="cat-type" data-type="expense" aria-pressed="${type === 'expense'}">支出分類</button><button data-act="cat-type" data-type="income" aria-pressed="${type === 'income'}">收入分類</button></div>
     <div class="card list">${list.map((c, i) => { const col = COLORS[c.color % COLORS.length]; const n = S.txs.filter((t) => t.categoryId === c.id).length; return `<div class="item" style="padding:8px 8px 8px 14px"><div class="badge" style="background:${col.bg};color:${col.fg}">${esc(c.name.slice(0, 1))}</div><div class="main"><div class="t">${esc(c.name)}</div><div class="s">${n} 筆紀錄</div></div><button class="icon-btn" data-act="cat-move" data-id="${c.id}" data-k="-1" aria-label="上移" ${i === 0 ? 'disabled' : ''}>${I.up}</button><button class="icon-btn" data-act="cat-move" data-id="${c.id}" data-k="1" aria-label="下移" ${i === list.length - 1 ? 'disabled' : ''}>${I.down}</button><button class="link-btn" data-act="edit-cat" data-id="${c.id}">編輯</button></div>`; }).join('')}</div>
     <button class="btn block" data-act="edit-cat" data-id="">＋ 新增分類</button>
@@ -579,7 +732,7 @@ function catSheet(c) {
 // ---------- 畫面：自動分類規則 ----------
 function viewRules() {
   return `<div class="stack">
-    ${topbar('自動分類規則', { back: '#settings', backLabel: '設定' })}
+    ${topbar('自動分類規則', { back: '#settings', backLabel: '更多' })}
     <div class="note">確認發票時勾選「記住此店家」就會新增規則。之後匯入同一家店的發票，會自動帶入分類與付款帳戶。</div>
     ${S.rules.length ? `<div class="card list">${S.rules.map((r) => `<div class="item" style="padding:10px 8px 10px 14px"><div class="main"><div class="t">${esc(r.keyword || r.ban)}</div><div class="s">${esc(cat(r.categoryId)?.name || '—')} · ${esc(acct(r.accountId)?.name || '—')}${r.ban ? ' · 統編 ' + esc(r.ban) : ''}</div></div><button class="link-btn" data-act="delete-rule" data-id="${r.id}" style="color:var(--expense)">刪除</button></div>`).join('')}</div>` : '<div class="card empty">還沒有規則</div>'}
   </div>`;
@@ -590,7 +743,7 @@ function viewExport() {
   if (!UI.exportFrom) { UI.exportFrom = `${UI.month}-01`; const [y, m] = UI.month.split('-').map(Number); UI.exportTo = toDate(new Date(y, m, 0)); }
   const n = confirmed().filter((t) => t.date >= UI.exportFrom && t.date <= UI.exportTo).length;
   return `<div class="stack">
-    ${topbar('匯出 CSV', { back: '#settings', backLabel: '設定' })}
+    ${topbar('匯出 CSV', { back: '#settings', backLabel: '更多' })}
     <div class="card pad form">
       <label class="lbl">起日<input class="input" type="date" data-act="exp-from" value="${UI.exportFrom}"></label>
       <label class="lbl">訖日<input class="input" type="date" data-act="exp-to" value="${UI.exportTo}"></label>
@@ -623,7 +776,7 @@ function download(name, content, type) {
 }
 async function doBackup() {
   const data = {};
-  for (const n of ['accounts', 'categories', 'txs', 'invoices', 'rules']) data[n] = S[n];
+  for (const n of ['accounts', 'categories', 'txs', 'invoices', 'rules', 'notes']) data[n] = S[n];
   data.meta = Object.entries(S.meta).filter(([k]) => k !== 'lastBackup').map(([key, value]) => ({ key, value }));
   const stamp = today();
   download(`jizhang_backup_${stamp.replace(/-/g, '')}.json`, JSON.stringify({ app: 'jizhang', version: 1, exportedAt: new Date().toISOString(), data }), 'application/json');
@@ -652,13 +805,13 @@ function openSheet(html, state = {}) { sheetState = state; const m = $('#modal')
 function closeSheet() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; sheetState = {}; }
 function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
 
-const TABS = [['#home', '首頁', I.home], ['#ledger', '帳本', I.book], ['#add', '', I.plus], ['#invoices', '發票', I.receipt], ['#settings', '設定', I.gear]];
+const TABS = [['#home', '首頁', I.home], ['#ledger', '帳本', I.book], ['#add', '', I.plus], ['#invoices', '發票', I.receipt], ['#settings', '更多', I.more]];
 function route() { return (location.hash || '#home').split('?')[0]; }
 function render() {
   const r = route();
-  const views = { '#home': viewHome, '#add': viewAdd, '#ledger': viewLedger, '#invoices': viewInvoices, '#settings': viewSettings, '#accounts': viewAccounts, '#categories': viewCategories, '#rules': viewRules, '#export': viewExport };
+  const views = { '#home': viewHome, '#add': viewAdd, '#ledger': viewLedger, '#invoices': viewInvoices, '#settings': viewSettings, '#accounts': viewAccounts, '#categories': viewCategories, '#rules': viewRules, '#export': viewExport, '#notes': viewNotes, '#note': viewNote };
   const fn = views[r] || viewHome;
-  const showNav = ['#home', '#ledger', '#invoices', '#settings'].includes(r) || !views[r];
+  const showNav = ['#home', '#ledger', '#invoices', '#settings', '#notes'].includes(r) || !views[r];
   const view = $('#view');
   view.innerHTML = fn();
   view.classList.toggle('no-nav', !showNav);
@@ -760,11 +913,20 @@ document.addEventListener('click', async (e) => {
     case 'do-restore': {
       const obj = UI.pendingRestore; if (!obj) break;
       await DB.replaceAll(obj.data);
-      for (const n of ['accounts', 'categories', 'txs', 'invoices', 'rules']) S[n] = obj.data[n] || [];
+      for (const n of ['accounts', 'categories', 'txs', 'invoices', 'rules', 'notes']) S[n] = obj.data[n] || [];
       S.meta = Object.fromEntries((obj.data.meta || []).map((m) => [m.key, m.value]));
       await setMeta('seeded', true);
       UI.pendingRestore = null; closeSheet(); toast('已還原'); go('#home'); break;
     }
+    case 'weather-enable': await setMeta('weatherOn', true); if (route() !== '#home') go('#home'); await fetchWeather(); break;
+    case 'weather-refresh': await fetchWeather(); break;
+    case 'weather-detail': openSheet(weatherSheet()); break;
+    case 'weather-off': await setMeta('weatherOn', false); await setMeta('weather', null); UI.weather = { status: 'idle', msg: '' }; toast('已關閉首頁天氣'); render(); break;
+    case 'note-pin': UI.note.pinned = !UI.note.pinned; await saveNoteNow(); render(); break;
+    case 'note-delete':
+      openSheet(`<div class="sheet form" role="dialog" aria-modal="true" aria-label="刪除筆記"><h2>刪除這則筆記？</h2><div class="btn-row"><button class="btn ghost" data-act="close">取消</button><button class="btn" style="background:var(--expense)" data-act="confirm-note-delete">刪除</button></div></div>`);
+      break;
+    case 'confirm-note-delete': { const nid = UI.note?.id; clearTimeout(noteTimer); noteTimer = null; UI.note = null; closeSheet(); if (nid) await remove('notes', nid); toast('已刪除筆記'); go('#notes'); break; }
     case 'close': closeSheet(); break;
   }
 });
@@ -772,6 +934,13 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('input', (e) => {
   const el = e.target;
   if (el.dataset.bind && UI.draft) UI.draft[el.dataset.bind] = el.value;
+  if (el.dataset.act === 'note-title' && UI.note) { UI.note.title = el.value; scheduleNoteSave(); }
+  if (el.dataset.act === 'note-body' && UI.note) { UI.note.body = el.value; scheduleNoteSave(); }
+  if (el.dataset.act === 'notes-q') {
+    UI.notesQ = el.value;
+    const pos = el.selectionStart; render();
+    const n = $('[data-act="notes-q"]'); n.focus(); n.setSelectionRange(pos, pos);
+  }
   if (el.dataset.act === 'ledger-q') {
     UI.ledger.q = el.value;
     const pos = el.selectionStart; render();
@@ -801,6 +970,8 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#mod
 window.addEventListener('hashchange', () => {
   if (route() === '#add' && !UI.draft) UI.draft = newDraft();
   if (route() !== '#add') UI.draft = null;
+  if (UI.note && noteTimer) saveNoteNow();
+  if (route() === '#note') openNoteFromHash(); else UI.note = null;
   closeSheet(); render(); window.scrollTo(0, 0);
 });
 
@@ -809,6 +980,8 @@ window.addEventListener('hashchange', () => {
   try {
     await load();
     if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
+    const w = S.meta.weather;
+    if (S.meta.weatherOn && (!w || Date.now() - new Date(w.at).getTime() > 30 * 60 * 1000)) setTimeout(() => fetchWeather({ quiet: true }), 300);
   } catch (err) {
     $('#view').innerHTML = `<div class="card pad">無法開啟資料庫：${esc(err.message || err)}</div>`;
     return;

@@ -1,8 +1,8 @@
 // 離線快取：APP 檔案「先連網、失敗才用快取」，所以更新檔案後會自動拿到新版；字型首次載入後存起來
-const CACHE = 'jizhang-v3';
+const CACHE = 'jizhang-v5';
 const SHELL = [
   './', './index.html', './styles.css', './db.js', './app.js', './manifest.webmanifest',
-  './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png',
+  './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png',
 ];
 
 self.addEventListener('install', (e) => {

@@ -1,13 +1,14 @@
 // IndexedDB 簡易封裝：所有資料只存在這台手機的瀏覽器中
 const DB = (() => {
   const NAME = 'jizhang';
-  const VERSION = 1;
+  const VERSION = 2;
   const STORES = {
     accounts: 'id',
     categories: 'id',
     txs: 'id',
     invoices: 'invNum',
     rules: 'id',
+    notes: 'id',
     meta: 'key',
   };
   let db = null;
