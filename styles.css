@@ -55,14 +55,14 @@ h2 { margin: 0; font-size: 16px; }
 .empty { text-align: center; color: var(--sub); padding: 28px 12px; font-size: 14px; }
 
 /* 首頁 */
-.summary { padding: 20px; display: flex; flex-direction: column; gap: 14px; border-radius: 26px; }
-.summary .big { font-size: 34px; font-weight: 700; letter-spacing: -0.5px; }
-.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.pill { border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 2px; }
+.summary { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; border-radius: 22px; }
+.summary .big { font-size: 24px; font-weight: 700; letter-spacing: -0.3px; }
+.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pill { border-radius: 14px; padding: 8px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
 .pill.in { background: var(--income-tint); }
-.pill.in b { color: var(--income); font-size: 18px; }
+.pill.in b { color: var(--income); font-size: 16px; }
 .pill.out { background: var(--expense-tint); }
-.pill.out b { color: var(--expense); font-size: 18px; }
+.pill.out b { color: var(--expense); font-size: 16px; }
 .acct-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 .acct-chip { flex: 0 0 auto; min-width: 104px; background: var(--card); border: 2px solid var(--ink); border-radius: 18px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; color: var(--ink); text-align: left; }
 .acct-chip span:first-child { font-size: 12px; color: var(--sub); }
@@ -180,8 +180,8 @@ select.chip { padding-right: 8px; }
 
 /* 天氣 */
 .weather { display: flex; align-items: center; gap: 4px; padding: 8px 8px 8px 14px; }
-.weather-main { flex-grow: 1; display: flex; align-items: center; gap: 12px; border: 0; background: transparent; text-align: left; padding: 4px 0; min-height: 56px; color: var(--ink); }
-.weather-main .wt { font-size: 32px; font-weight: 700; letter-spacing: -1px; }
+.weather-main { flex-grow: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; text-align: left; padding: 4px 0; min-height: 56px; color: var(--ink); }
+.weather-main .wt { font-size: 28px; font-weight: 700; letter-spacing: -1px; }
 .weather-main .wd { display: flex; flex-direction: column; gap: 1px; }
 .weather-off { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 14px; color: var(--ink); }
 .wrow { display: grid; grid-template-columns: 88px 28px 1fr 52px auto; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 14px; }
@@ -199,3 +199,10 @@ select.chip { padding-right: 8px; }
 .note-title { border: 0; background: transparent; font-size: 22px; font-weight: 700; padding: 4px 2px; outline: none; width: 100%; }
 .note-body { border: 2px solid var(--line-strong); background: var(--card); border-radius: 18px; padding: 14px; min-height: 60vh; font-size: 16px; line-height: 1.7; resize: vertical; outline: none; width: 100%; }
 .note-body:focus { border-color: var(--primary); }
+
+/* 首頁上方：天氣＋記事本捷徑 */
+.home-top { display: flex; gap: 10px; align-items: stretch; }
+.home-top > .weather, .home-top > .weather-off { flex: 1 1 auto; min-width: 0; width: auto; }
+.notes-tile { flex: 0 0 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--primary); font-size: 12px; position: relative; min-height: 72px; }
+.notes-tile span { color: var(--ink); }
+.notes-tile .nbadge { position: absolute; top: 6px; right: 8px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--primary); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }

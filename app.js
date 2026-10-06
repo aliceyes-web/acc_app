@@ -39,6 +39,7 @@ const I = {
   transfer: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3-3M20 16H6l3 3"/></svg>',
   upload: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
   more: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>',
+  note: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h5"/></svg>',
   refresh: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
   pin: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3z"/><path d="M12 14v6"/></svg>',
   drop: '<svg width="12" height="12" viewBox="0 0 24 24" fill="#3F7FD1" aria-hidden="true"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/></svg>',
@@ -258,9 +259,9 @@ function weatherCard() {
   const [desc, kind] = wmo(w.current.code); const t0 = w.daily[0] || {};
   const note = st.status === 'loading' ? '更新中…' : st.status === 'error' ? `${esc(st.msg)}，顯示 ${hhmm(w.at)} 的資料` : `${hhmm(w.at)} 更新`;
   return `<div class="card weather">
-    <button class="weather-main" data-act="weather-detail" aria-label="查看一週天氣">${wIcon(kind, 44)}
+    <button class="weather-main" data-act="weather-detail" aria-label="查看一週天氣">${wIcon(kind, 38)}
       <span class="wt">${deg(w.current.temp)}</span>
-      <span class="wd"><b>${desc}</b><span class="small muted">${deg(t0.min)} / ${deg(t0.max)} · 降雨 ${t0.pop ?? '—'}%</span><span class="small muted">${note}</span></span>
+      <span class="wd"><b>${desc}</b><span class="small muted" style="white-space:nowrap">${deg(t0.min)} / ${deg(t0.max)} · ${I.drop}${t0.pop ?? '—'}%</span><span class="small muted">${note}</span></span>
     </button>
     <button class="icon-btn" data-act="weather-refresh" aria-label="重新整理天氣">${I.refresh}</button>
   </div>`;
@@ -334,7 +335,7 @@ function viewHome() {
   const recent = confirmed().filter((x) => x.date.startsWith(UI.month)).sort(sortTx).slice(0, 5);
   const pending = pendingInvoiceTxs().length;
   return `<div class="stack">
-    ${weatherCard()}
+    <div class="home-top">${weatherCard()}<a class="card notes-tile" href="#notes" aria-label="記事本，${S.notes.length} 則">${I.note}<span>記事本</span>${S.notes.length ? `<span class="nbadge">${S.notes.length}</span>` : ''}</a></div>
     ${monthNav('')}
     <div class="card summary">
       <div><div class="muted small">本月結餘</div><div class="big">NT$ ${t.net < 0 ? '−' : ''}${fmt(t.net)}</div></div>
@@ -670,7 +671,7 @@ function viewSettings() {
       <button class="srow" data-act="restore"><span class="main"><span>從備份還原</span><span class="s">換手機時使用，會覆蓋目前資料</span></span>${I.chev}</button>
     </div></div>
     <div class="note">資料只存在這台手機的瀏覽器裡。建議每月備份一次，把備份檔存到雲端硬碟或電腦。清除瀏覽器資料會刪掉所有紀錄。</div>
-    <div class="small muted" style="text-align:center">記帳 PWA · 版本 1.5</div>
+    <div class="small muted" style="text-align:center">記帳 PWA · 版本 1.6</div>
   </div>`;
 }
 
